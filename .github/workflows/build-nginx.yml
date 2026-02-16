@@ -1,0 +1,26 @@
+name: Build Nginx for MikroTik
+on:
+  workflow_dispatch: # Позволяет запускать сборку кнопкой
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64] # Собираем сразу под обе архитектуры
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pull and Save Image
+        run: |
+          docker pull --platform linux/${{ matrix.arch }} nginx:1.25.3-alpine
+          docker save nginx:1.25.3-alpine > nginx-${{ matrix.arch }}.tar
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v1.25.3
+          files: nginx-${{ matrix.arch }}.tar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
