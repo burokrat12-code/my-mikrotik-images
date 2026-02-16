@@ -1,8 +1,7 @@
-name: Build Nginx for MikroTik
+name: Build Containers for MikroTik
 on:
   workflow_dispatch:
 
-# Добавляем права на запись контента и создание релизов
 permissions:
   contents: write
 
@@ -10,8 +9,15 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         arch: [amd64, arm64]
+        include:
+          - image_name: "nginx"
+            docker_source: "nginx:1.25.3-alpine"
+          - image_name: "mihomo"
+            docker_source: "wiktorbgu/mihomo-mikrotik:latest"
+            
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,16 +25,24 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      - name: Save Docker Image
+      - name: Build and Save Image
         run: |
-          echo "FROM --platform=linux/${{ matrix.arch }} nginx:1.25.3-alpine" > Dockerfile
-          docker build --platform linux/${{ matrix.arch }} -t nginx-temp-${{ matrix.arch }} .
-          docker save nginx-temp-${{ matrix.arch }} > nginx-${{ matrix.arch }}.tar
+          # Создаем Dockerfile
+          echo "FROM --platform=linux/${{ matrix.arch }} ${{ matrix.docker_source }}" > Dockerfile
+          
+          # Формируем имя файла, например: mihomo-arm64.tar
+          OUTPUT_FILE="${{ matrix.image_name }}-${{ matrix.arch }}.tar"
+          
+          echo "Building for ${{ matrix.arch }} from ${{ matrix.docker_source }}..."
+          
+          docker build --platform linux/${{ matrix.arch }} -t temp-image-${{ matrix.arch }} .
+          docker save temp-image-${{ matrix.arch }} > $OUTPUT_FILE
 
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.25.3
-          files: nginx-${{ matrix.arch }}.tar
+          tag_name: v1.0.0
+          files: "*.tar"
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
