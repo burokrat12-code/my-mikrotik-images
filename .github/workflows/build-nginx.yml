@@ -2,6 +2,10 @@ name: Build Nginx for MikroTik
 on:
   workflow_dispatch:
 
+# Добавляем права на запись контента и создание релизов
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,10 +21,7 @@ jobs:
 
       - name: Save Docker Image
         run: |
-          # Создаем пустой Dockerfile на лету, который просто берет официальный Nginx
           echo "FROM --platform=linux/${{ matrix.arch }} nginx:1.25.3-alpine" > Dockerfile
-          
-          # Собираем его локально и сразу сохраняем в архив
           docker build --platform linux/${{ matrix.arch }} -t nginx-temp-${{ matrix.arch }} .
           docker save nginx-temp-${{ matrix.arch }} > nginx-${{ matrix.arch }}.tar
 
