@@ -12,20 +12,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
-      - name: Build and Save Image
+      - name: Save Docker Image
         run: |
-          # Используем buildx для создания образа и вывода его в tar
-          docker buildx build \
-            --platform linux/${{ matrix.arch }} \
-            --output type=docker,dest=nginx-${{ matrix.arch }}.tar \
-            --tag nginx:1.25.3-alpine \
-            docker.io/library/nginx:1.25.3-alpine
+          # Создаем пустой Dockerfile на лету, который просто берет официальный Nginx
+          echo "FROM --platform=linux/${{ matrix.arch }} nginx:1.25.3-alpine" > Dockerfile
+          
+          # Собираем его локально и сразу сохраняем в архив
+          docker build --platform linux/${{ matrix.arch }} -t nginx-temp-${{ matrix.arch }} .
+          docker save nginx-temp-${{ matrix.arch }} > nginx-${{ matrix.arch }}.tar
 
       - name: Upload Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.25.3
           files: nginx-${{ matrix.arch }}.tar
