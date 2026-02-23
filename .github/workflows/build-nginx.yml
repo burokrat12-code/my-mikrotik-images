@@ -11,38 +11,51 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        arch: [arm64] # Можно добавить amd64, если нужно для других роутеров
         include:
           - image_name: "nginx"
             docker_source: "nginx:1.25.3-alpine"
           - image_name: "mihomo"
             docker_source: "wiktorbgu/mihomo-mikrotik:latest"
-            
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Install Skopeo
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y skopeo
 
       - name: Build and Save Image
         run: |
-          # Создаем Dockerfile
-          echo "FROM --platform=linux/${{ matrix.arch }} ${{ matrix.docker_source }}" > Dockerfile
-          
-          # Формируем имя файла, например: mihomo-arm64.tar
-          OUTPUT_FILE="${{ matrix.image_name }}-${{ matrix.arch }}.tar"
-          
-          echo "Building for ${{ matrix.arch }} from ${{ matrix.docker_source }}..."
-          
-          docker build --platform linux/${{ matrix.arch }} -t temp-image-${{ matrix.arch }} .
-          docker save temp-image-${{ matrix.arch }} > $OUTPUT_FILE
+          # Переменные имен
+          TEMP_TAR="temp.tar"
+          # Используем простое имя: mihomo-arm64.tar.gz
+          FINAL_NAME="${{ matrix.image_name }}-${{ matrix.arch }}.tar.gz"
+
+          echo "Processing ${{ matrix.image_name }} for ${{ matrix.arch }}..."
+
+          # 1. Стягиваем и конвертируем в Docker V2 (Legacy) формат
+          # Это создает правильный manifest.json и config.json внутри архива
+          skopeo copy \
+            --override-os linux \
+            --override-arch ${{ matrix.arch }} \
+            docker://${{ matrix.docker_source }} \
+            docker-archive:$TEMP_TAR:${{ matrix.docker_source }}
+
+          # 2. Сжимаем в .gz, который понимает MikroTik
+          gzip -c $TEMP_TAR > $FINAL_NAME
+
+          # 3. Очистка
+          rm $TEMP_TAR
+          echo "Done: $FINAL_NAME"
 
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.0
-          files: "*.tar"
+          tag_name: v1.1.0
+          files: "*.tar.gz"
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
