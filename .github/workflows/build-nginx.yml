@@ -11,53 +11,96 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [arm64]
-        image:
-          - name: "nginx"
-            source: "nginx:1.25.3-alpine"
-          - name: "mihomo"
-            source: "wiktorbgu/mihomo-mikrotik:latest"
+        arch: [arm64] # Можно добавить amd64, если нужно для других роутеров
+        include:
+          - image_name: "nginx"
+            docker_source: "nginx:1.25.3-alpine"
+          - image_name: "mihomo"
+            docker_source: "wiktorbgu/mihomo-mikrotik:latest"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y skopeo wget unzip
 
       - name: Build and Save Image
         run: |
-          FINAL_NAME="${{ matrix.image.name }}-${{ matrix.arch }}.tar.gz"
-          
-          if [ "${{ matrix.image.name }}" = "mihomo" ]; then
-            # Для mihomo - собираем с UI
-            cat > Dockerfile << 'EOF'
-            FROM wiktorbgu/mihomo-mikrotik:latest
-            RUN wget -O /tmp/ui.zip https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip && \
-                unzip /tmp/ui.zip -d /ui && \
-                rm /tmp/ui.zip
-            EOF
+          # Переменные имен
+          TEMP_TAR="temp.tar"
+          # Используем простое имя: mihomo-arm64.tar.gz
+          FINAL_NAME="${{ matrix.image_name }}-${{ matrix.arch }}.tar.gz"
+
+          echo "Processing ${{ matrix.image_name }} for ${{ matrix.arch }}..."
+
+          # 1. Стягиваем и конвертируем в Docker V2 (Legacy) формат
+          skopeo copy \
+            --override-os linux \
+            --override-arch ${{ matrix.arch }} \
+            docker://${{ matrix.docker_source }} \
+            docker-archive:$TEMP_TAR:${{ matrix.docker_source }}
+
+          # 2. Для mihomo добавляем панель внутрь образа
+          if [ "${{ matrix.image_name }}" = "mihomo" ]; then
+            echo "Adding zashboard UI to mihomo image..."
             
-            docker buildx build \
-              --platform linux/${{ matrix.arch }} \
-              --load \
-              -t mihomo-with-ui \
-              .
+            # Создаем временную папку
+            mkdir -p temp_work
+            cd temp_work
             
-            docker save mihomo-with-ui -o temp.tar
-          else
-            # Для nginx - просто копируем как было
-            sudo apt-get update
-            sudo apt-get install -y skopeo
-            skopeo copy \
-              --override-os linux \
-              --override-arch ${{ matrix.arch }} \
-              docker://${{ matrix.image.source }} \
-              docker-archive:temp.tar:${{ matrix.image.source }}
+            # Распаковываем оригинальный архив
+            tar -xf ../$TEMP_TAR
+            
+            # Скачиваем панель
+            wget -O dist.zip https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip
+            unzip -q dist.zip
+            rm dist.zip
+            
+            # Если распаковалось в папку dist, перемещаем содержимое
+            if [ -d "dist" ]; then
+              mv dist/* .
+              rm -rf dist
+            fi
+            
+            # Создаем новый слой с UI
+            mkdir -p new_layer
+            cp -r ./* new_layer/ 2>/dev/null || true
+            
+            # Находим или создаем ID для нового слоя
+            LAYER_ID=$(uuidgen | tr '[:upper:]' '[:lower:]' | sed 's/-//g')
+            mkdir -p $LAYER_ID
+            
+            # Создаем layer.tar с UI файлами
+            cd new_layer
+            tar -cf ../$LAYER_ID/layer.tar .
+            cd ..
+            
+            # Обновляем manifest.json добавляя новый слой
+            # Просто копируем UI в первый существующий слой (проще и безопаснее)
+            FIRST_LAYER=$(find . -maxdepth 1 -type d | grep -E '^\./[a-f0-9]{64}$' | head -1)
+            if [ -n "$FIRST_LAYER" ]; then
+              cd "$FIRST_LAYER"
+              tar -xf layer.tar
+              cp -r ../new_layer/* .
+              tar -cf layer.tar .
+              rm -rf $(ls -A | grep -v layer.tar)
+              cd ..
+            fi
+            
+            # Упаковываем обратно ТОЧНО ТАК ЖЕ как было
+            cd ..
+            tar -cf $TEMP_TAR -C temp_work .
+            rm -rf temp_work
           fi
-          
-          gzip -c temp.tar > $FINAL_NAME
-          rm temp.tar
+
+          # 3. Сжимаем в .gz, который понимает MikroTik
+          gzip -c $TEMP_TAR > $FINAL_NAME
+
+          # 4. Очистка
+          rm $TEMP_TAR
           echo "Done: $FINAL_NAME"
 
       - name: Upload Release
