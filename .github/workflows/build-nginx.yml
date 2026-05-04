@@ -66,30 +66,34 @@ jobs:
               rm -rf ui/dist
             fi
             
-            # Находим ВСЕ layer.tar файлы и добавляем в каждый слой
+            # Добавляем UI в каждый слой (сохраняя manifest.json)
             find . -name "layer.tar" -type f | while read layer_file; do
               LAYER_DIR=$(dirname "$layer_file")
-              echo "Processing layer: $LAYER_DIR"
+              echo "Adding UI to layer: $LAYER_DIR"
               
-              if [ -n "$LAYER_DIR" ] && [ -d "$LAYER_DIR" ]; then
-                cd "$LAYER_DIR"
-                
-                # Распаковываем слой
-                tar -xf layer.tar 2>/dev/null || true
-                
-                # Создаем папку ui и копируем файлы
-                mkdir -p ui
-                cp -r ../../ui/* ui/ 2>/dev/null || true
-                
-                # Упаковываем обратно
-                tar -cf layer.tar . --exclude=layer.tar 2>/dev/null || true
-                
-                cd ../../
-              fi
+              cd "$LAYER_DIR"
+              
+              # Создаем временную директорию для распаковки слоя
+              mkdir -p layer_content
+              cd layer_content
+              
+              # Распаковываем слой
+              tar -xf ../layer.tar 2>/dev/null || true
+              
+              # Создаем папку ui и копируем файлы
+              mkdir -p ui
+              cp -r ../../../ui/* ui/ 2>/dev/null || true
+              
+              # Упаковываем обратно
+              tar -cf ../layer.tar . 2>/dev/null
+              
+              cd ..
+              rm -rf layer_content
+              cd ../..
             done
             
-            # Упаковываем измененный образ обратно в tar
-            tar -cf ../$TEMP_TAR . 2>/dev/null
+            # Упаковываем обратно в tar, сохраняя структуру
+            tar -cf ../$TEMP_TAR .
             cd ..
             rm -rf temp_image
           fi
