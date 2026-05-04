@@ -30,11 +30,12 @@ jobs:
           FINAL_NAME="${{ matrix.image.name }}-${{ matrix.arch }}.tar.gz"
           
           if [ "${{ matrix.image.name }}" = "mihomo" ]; then
-            # Для mihomo - собираем с UI
+            # Для mihomo - собираем с UI и geoip.metadb
             echo 'FROM wiktorbgu/mihomo-mikrotik:latest
             RUN wget -O /tmp/ui.zip https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip && \
                 unzip /tmp/ui.zip -d /ui && \
-                rm /tmp/ui.zip' > Dockerfile
+                rm /tmp/ui.zip && \
+                wget -O /etc/mihomo/geoip.metadb https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb' > Dockerfile
             
             docker buildx build \
               --platform linux/${{ matrix.arch }} \
