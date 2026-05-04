@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [arm64] # Можно добавить amd64, если нужно для других роутеров
+        arch: [arm64]
         include:
           - image_name: "nginx"
             docker_source: "nginx:1.25.3-alpine"
@@ -29,79 +29,67 @@ jobs:
 
       - name: Build and Save Image
         run: |
-          # Переменные имен
           TEMP_TAR="temp.tar"
-          # Используем простое имя: mihomo-arm64.tar.gz
           FINAL_NAME="${{ matrix.image_name }}-${{ matrix.arch }}.tar.gz"
 
           echo "Processing ${{ matrix.image_name }} for ${{ matrix.arch }}..."
 
-          # 1. Стягиваем и конвертируем в Docker V2 (Legacy) формат
           skopeo copy \
             --override-os linux \
             --override-arch ${{ matrix.arch }} \
             docker://${{ matrix.docker_source }} \
             docker-archive:$TEMP_TAR:${{ matrix.docker_source }}
 
-          # 2. Для mihomo добавляем панель внутрь образа
           if [ "${{ matrix.image_name }}" = "mihomo" ]; then
             echo "Adding zashboard UI to mihomo image..."
             
-            # Создаем временную директорию
+            # Распаковываем оригинальный tar
             mkdir -p temp_image
             cd temp_image
-            
-            # Распаковываем tar архив
             tar -xf ../$TEMP_TAR
             
-            # Скачиваем и распаковываем панель
+            # Скачиваем панель
             wget -O dist.zip https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip
-            mkdir -p ui
-            unzip -q dist.zip -d ui/
+            mkdir -p ui_content
+            unzip -q dist.zip -d ui_content/
             rm dist.zip
             
-            # Перемещаем содержимое из ui/dist/ в ui/ если есть
-            if [ -d "ui/dist" ]; then
-              mv ui/dist/* ui/
-              rm -rf ui/dist
+            # Если есть вложенная папка dist, перемещаем
+            if [ -d "ui_content/dist" ]; then
+              mv ui_content/dist/* ui_content/
+              rm -rf ui_content/dist
             fi
             
-            # Добавляем UI в каждый слой (сохраняя manifest.json)
-            find . -name "layer.tar" -type f | while read layer_file; do
-              LAYER_DIR=$(dirname "$layer_file")
-              echo "Adding UI to layer: $LAYER_DIR"
+            # Добавляем файлы в КАЖДЫЙ слой, но без повреждения структуры
+            for layer_file in $(find . -name "layer.tar" -type f); do
+              layer_dir=$(dirname "$layer_file")
+              echo "Processing: $layer_dir"
               
-              cd "$LAYER_DIR"
+              cd "$layer_dir"
               
-              # Создаем временную директорию для распаковки слоя
-              mkdir -p layer_content
-              cd layer_content
+              # Распаковываем слой во временную папку
+              mkdir -p temp_extract
+              cd temp_extract
+              tar -xf ../layer.tar
               
-              # Распаковываем слой
-              tar -xf ../layer.tar 2>/dev/null || true
-              
-              # Создаем папку ui и копируем файлы
+              # Копируем UI
               mkdir -p ui
-              cp -r ../../../ui/* ui/ 2>/dev/null || true
+              cp -r ../../../ui_content/* ui/
               
               # Упаковываем обратно
-              tar -cf ../layer.tar . 2>/dev/null
+              tar -cf ../layer.tar .
               
-              cd ..
-              rm -rf layer_content
               cd ../..
+              rm -rf "$layer_dir/temp_extract"
             done
             
-            # Упаковываем обратно в tar, сохраняя структуру
-            tar -cf ../$TEMP_TAR .
+            # Упаковываем ОБРАТНО в tar (сохраняя manifest.json и все файлы)
             cd ..
+            tar -cf $TEMP_TAR -C temp_image .
             rm -rf temp_image
           fi
 
-          # 3. Сжимаем в .gz, который понимает MikroTik
           gzip -c $TEMP_TAR > $FINAL_NAME
-
-          # 4. Очистка
           rm $TEMP_TAR
           echo "Done: $FINAL_NAME"
 
