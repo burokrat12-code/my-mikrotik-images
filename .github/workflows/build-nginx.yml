@@ -54,40 +54,42 @@ jobs:
             # Распаковываем tar архив
             tar -xf ../$TEMP_TAR
             
-            # Скачиваем и распаковываем панель прямо в папку ui
+            # Скачиваем и распаковываем панель
             wget -O dist.zip https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip
             mkdir -p ui
-            unzip dist.zip -d ui/
+            unzip -q dist.zip -d ui/
             rm dist.zip
             
-            # Перемещаем содержимое из ui/dist/ в ui/ (если есть вложенная папка dist)
+            # Перемещаем содержимое из ui/dist/ в ui/ если есть
             if [ -d "ui/dist" ]; then
               mv ui/dist/* ui/
               rm -rf ui/dist
             fi
             
-            # Находим последний слой (там где файловая система)
-            # Ищем самый глубокий слой с layer.tar
-            LAYER_DIR=$(find . -name "layer.tar" -type f | head -1 | xargs dirname)
-            
-            if [ -n "$LAYER_DIR" ] && [ -d "$LAYER_DIR" ]; then
-              cd $LAYER_DIR
+            # Находим ВСЕ layer.tar файлы и добавляем в каждый слой
+            find . -name "layer.tar" -type f | while read layer_file; do
+              LAYER_DIR=$(dirname "$layer_file")
+              echo "Processing layer: $LAYER_DIR"
               
-              # Распаковываем слой
-              tar -xf layer.tar 2>/dev/null || true
-              
-              # Создаем папку ui и копируем файлы
-              mkdir -p ui
-              cp -r ../../ui/* ui/
-              
-              # Упаковываем обратно
-              tar -cf layer.tar . --exclude=layer.tar
-              
-              cd ../../
-            fi
+              if [ -n "$LAYER_DIR" ] && [ -d "$LAYER_DIR" ]; then
+                cd "$LAYER_DIR"
+                
+                # Распаковываем слой
+                tar -xf layer.tar 2>/dev/null || true
+                
+                # Создаем папку ui и копируем файлы
+                mkdir -p ui
+                cp -r ../../ui/* ui/ 2>/dev/null || true
+                
+                # Упаковываем обратно
+                tar -cf layer.tar . --exclude=layer.tar 2>/dev/null || true
+                
+                cd ../../
+              fi
+            done
             
             # Упаковываем измененный образ обратно в tar
-            tar -cf ../$TEMP_TAR .
+            tar -cf ../$TEMP_TAR . 2>/dev/null
             cd ..
             rm -rf temp_image
           fi
