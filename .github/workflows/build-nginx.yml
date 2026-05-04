@@ -37,18 +37,15 @@ jobs:
             echo "Downloading geoip.metadb..."
             wget -O geoip.metadb https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb
             
-            # Создаем Dockerfile с COPY (без wget в RUN)
-            cat > Dockerfile <<EOF
-            FROM wiktorbgu/mihomo-mikrotik:latest
-            
-            # Копируем предварительно скачанные файлы
-            COPY dist.zip /tmp/dist.zip
-            COPY geoip.metadb /etc/mihomo/geoip.metadb
-            
-            # Распаковываем панель
-            RUN unzip /tmp/dist.zip -d /ui && \
-                rm /tmp/dist.zip
-            EOF
+            # Создаем Dockerfile
+            printf '%s\n' \
+              'FROM wiktorbgu/mihomo-mikrotik:latest' \
+              '' \
+              'COPY dist.zip /tmp/dist.zip' \
+              'COPY geoip.metadb /etc/mihomo/geoip.metadb' \
+              '' \
+              'RUN unzip /tmp/dist.zip -d /ui && rm /tmp/dist.zip' \
+              > Dockerfile
             
             # Собираем образ
             docker buildx build \
