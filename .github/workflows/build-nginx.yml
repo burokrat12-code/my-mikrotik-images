@@ -12,85 +12,52 @@ jobs:
       fail-fast: false
       matrix:
         arch: [arm64]
-        include:
-          - image_name: "nginx"
-            docker_source: "nginx:1.25.3-alpine"
-          - image_name: "mihomo"
-            docker_source: "wiktorbgu/mihomo-mikrotik:latest"
+        image:
+          - name: "nginx"
+            source: "nginx:1.25.3-alpine"
+          - name: "mihomo"
+            source: "wiktorbgu/mihomo-mikrotik:latest"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y skopeo wget unzip
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Build and Save Image
         run: |
-          TEMP_TAR="temp.tar"
-          FINAL_NAME="${{ matrix.image_name }}-${{ matrix.arch }}.tar.gz"
-
-          echo "Processing ${{ matrix.image_name }} for ${{ matrix.arch }}..."
-
-          skopeo copy \
-            --override-os linux \
-            --override-arch ${{ matrix.arch }} \
-            docker://${{ matrix.docker_source }} \
-            docker-archive:$TEMP_TAR:${{ matrix.docker_source }}
-
-          if [ "${{ matrix.image_name }}" = "mihomo" ]; then
-            echo "Adding zashboard UI to mihomo image..."
+          FINAL_NAME="${{ matrix.image.name }}-${{ matrix.arch }}.tar.gz"
+          
+          if [ "${{ matrix.image.name }}" = "mihomo" ]; then
+            # Для mihomo - собираем с UI
+            cat > Dockerfile << 'EOF'
+            FROM wiktorbgu/mihomo-mikrotik:latest
+            RUN wget -O /tmp/ui.zip https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip && \
+                unzip /tmp/ui.zip -d /ui && \
+                rm /tmp/ui.zip
+            EOF
             
-            # Распаковываем оригинальный tar
-            mkdir -p temp_image
-            cd temp_image
-            tar -xf ../$TEMP_TAR
+            docker buildx build \
+              --platform linux/${{ matrix.arch }} \
+              --load \
+              -t mihomo-with-ui \
+              .
             
-            # Скачиваем панель
-            wget -O dist.zip https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip
-            mkdir -p ui_content
-            unzip -q dist.zip -d ui_content/
-            rm dist.zip
-            
-            # Если есть вложенная папка dist, перемещаем
-            if [ -d "ui_content/dist" ]; then
-              mv ui_content/dist/* ui_content/
-              rm -rf ui_content/dist
-            fi
-            
-            # Добавляем файлы в КАЖДЫЙ слой, но без повреждения структуры
-            for layer_file in $(find . -name "layer.tar" -type f); do
-              layer_dir=$(dirname "$layer_file")
-              echo "Processing: $layer_dir"
-              
-              cd "$layer_dir"
-              
-              # Распаковываем слой во временную папку
-              mkdir -p temp_extract
-              cd temp_extract
-              tar -xf ../layer.tar
-              
-              # Копируем UI
-              mkdir -p ui
-              cp -r ../../../ui_content/* ui/
-              
-              # Упаковываем обратно
-              tar -cf ../layer.tar .
-              
-              cd ../..
-              rm -rf "$layer_dir/temp_extract"
-            done
-            
-            # Упаковываем ОБРАТНО в tar (сохраняя manifest.json и все файлы)
-            cd ..
-            tar -cf $TEMP_TAR -C temp_image .
-            rm -rf temp_image
+            docker save mihomo-with-ui -o temp.tar
+          else
+            # Для nginx - просто копируем как было
+            sudo apt-get update
+            sudo apt-get install -y skopeo
+            skopeo copy \
+              --override-os linux \
+              --override-arch ${{ matrix.arch }} \
+              docker://${{ matrix.image.source }} \
+              docker-archive:temp.tar:${{ matrix.image.source }}
           fi
-
-          gzip -c $TEMP_TAR > $FINAL_NAME
-          rm $TEMP_TAR
+          
+          gzip -c temp.tar > $FINAL_NAME
+          rm temp.tar
           echo "Done: $FINAL_NAME"
 
       - name: Upload Release
